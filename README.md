@@ -1,5 +1,7 @@
 # Qt/QML Equipment Monitoring System
 
+[![CI](https://github.com/WindFromTheWoods/qml-equipment-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/WindFromTheWoods/qml-equipment-monitor/actions/workflows/ci.yml)
+
 A desktop application for monitoring industrial equipment. The current version implements the first vertical slice using Clean Architecture and MVVM: a simulated device sends telemetry to a C++ view model, QML renders a live chart, and the domain-level `AlarmEngine` monitors a configurable temperature threshold.
 
 ## Features
@@ -71,6 +73,19 @@ The unit test target validates metric filtering, strict threshold behavior, alar
 ```powershell
 ctest --test-dir build --output-on-failure
 ```
+
+## Continuous Integration
+
+GitHub Actions runs automatically for every push to `main`, every pull request targeting `main`, and manual `workflow_dispatch` runs. The CI matrix builds the project with Ubuntu/GCC, Windows/MSVC 2022, and Windows/MinGW 13.1. Every variant performs the following checks:
+
+- configures and builds the project in Release mode;
+- treats compiler warnings as errors;
+- runs all CTest unit tests and fails when no tests are discovered;
+- runs the generated Qt `all_qmllint` target;
+- generates Doxygen documentation on Ubuntu;
+- packages the Windows executable with its Qt runtime dependencies.
+
+Successful Windows jobs publish separate `equipment-monitor-windows-msvc-x64` and `equipment-monitor-windows-mingw-x64` artifacts that are retained for 14 days. GitHub Actions dependencies are pinned to immutable commit SHAs and monitored by Dependabot.
 
 ## Generate API Documentation
 

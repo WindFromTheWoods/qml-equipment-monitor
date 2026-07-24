@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_VERSION: 6.8.3
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux GCC
+            os: ubuntu-24.04
+            compiler: gcc
+            qt_architecture: linux_gcc_64
+            qt_tools: ""
+            binary_path: build/equipment-monitor
+            artifact_name: ""
+          - name: Windows MSVC 2022
+            os: windows-2022
+            compiler: msvc
+            qt_architecture: win64_msvc2022_64
+            qt_tools: ""
+            binary_path: build/Release/equipment-monitor.exe
+            artifact_name: equipment-monitor-windows-msvc-x64
+          - name: Windows MinGW 13.1
+            os: windows-2022
+            compiler: mingw
+            qt_architecture: win64_mingw
+            qt_tools: tools_mingw1310,qt.tools.win64_mingw1310
+            binary_path: build/equipment-monitor.exe
+            artifact_name: equipment-monitor-windows-mingw-x64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+        with:
+          version: ${{ env.QT_VERSION }}
+          target: desktop
+          arch: ${{ matrix.qt_architecture }}
+          tools: ${{ matrix.qt_tools }}
+          cache: true
+          cache-key-prefix: qt-${{ runner.os }}-${{ matrix.qt_architecture }}
+
+      - name: Install documentation tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes doxygen graphviz ninja-build
+
+      - name: Configure Linux
+        if: matrix.compiler == 'gcc'
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+          -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+
+      - name: Configure Windows with MSVC
+        if: matrix.compiler == 'msvc'
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+          -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
+      - name: Configure Windows with MinGW
+        if: matrix.compiler == 'mingw'
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+          -DCMAKE_CXX_COMPILER=g++.exe
+          -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run unit tests
+        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error
+
+      - name: Run QML static analysis
+        run: cmake --build build --target all_qmllint --config Release
+
+      - name: Generate API documentation
+        if: matrix.compiler == 'gcc'
+        run: cmake --build build --target docs
+
+      - name: Create Windows runtime package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifact/EquipmentMonitor | Out-Null
+          Copy-Item '${{ matrix.binary_path }}' artifact/EquipmentMonitor/equipment-monitor.exe
+          windeployqt `
+            --release `
+            --no-translations `
+            --qmldir src/presentation/qml `
+            --dir artifact/EquipmentMonitor `
+            artifact/EquipmentMonitor/equipment-monitor.exe
+
+      - name: Upload Windows build
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: artifact/EquipmentMonitor
+          if-no-files-found: error
+          retention-days: 14
