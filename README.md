@@ -76,7 +76,7 @@ ctest --test-dir build --output-on-failure
 
 ## Continuous Integration
 
-GitHub Actions runs automatically for every push to `main`, every pull request targeting `main`, and manual `workflow_dispatch` runs. The CI matrix performs the following checks on Ubuntu and Windows:
+GitHub Actions runs automatically for every push to `main`, every pull request targeting `main`, and manual `workflow_dispatch` runs. The CI matrix builds the project with Ubuntu/GCC, Windows/MSVC 2022, and Windows/MinGW 13.1. Every variant performs the following checks:
 
 - configures and builds the project in Release mode;
 - treats compiler warnings as errors;
@@ -85,7 +85,7 @@ GitHub Actions runs automatically for every push to `main`, every pull request t
 - generates Doxygen documentation on Ubuntu;
 - packages the Windows executable with its Qt runtime dependencies.
 
-Successful Windows jobs publish an `equipment-monitor-windows-x64` artifact that is retained for 14 days. GitHub Actions dependencies are pinned to immutable commit SHAs and monitored by Dependabot.
+Successful Windows jobs publish separate `equipment-monitor-windows-msvc-x64` and `equipment-monitor-windows-mingw-x64` artifacts that are retained for 14 days. GitHub Actions dependencies are pinned to immutable commit SHAs and monitored by Dependabot.
 
 ## Generate API Documentation
 
