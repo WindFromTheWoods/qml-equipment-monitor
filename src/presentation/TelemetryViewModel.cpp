@@ -7,36 +7,48 @@
 
 #include <QtGlobal>
 
+#include <optional>
+#include <utility>
+
 namespace equipment {
 
 TelemetryViewModel::TelemetryViewModel(
-    IDeviceTransport *transport,
+    MonitoringService *monitoringService,
     QString deviceName,
     QString deviceType,
     QObject *parent)
     : QObject(parent)
-    , m_transport(transport)
+    , m_monitoringService(monitoringService)
     , m_deviceName(std::move(deviceName))
     , m_deviceType(std::move(deviceType))
-    , m_temperatureRule{
-          .metricKey = QStringLiteral("temperature"),
-          .operation = ComparisonOperation::GreaterThan,
-          .threshold = 80.0,
-          .severity = AlarmSeverity::Critical,
-      }
 {
-    Q_ASSERT(m_transport != nullptr);
+    Q_ASSERT(m_monitoringService != nullptr);
 
     connect(
-        m_transport,
-        &IDeviceTransport::telemetryReceived,
+        m_monitoringService,
+        &MonitoringService::sampleAccepted,
         this,
-        &TelemetryViewModel::onTelemetryReceived);
+        &TelemetryViewModel::onSampleAccepted);
     connect(
-        m_transport,
-        &IDeviceTransport::statusChanged,
+        m_monitoringService,
+        &MonitoringService::historyRestored,
+        this,
+        &TelemetryViewModel::onHistoryRestored);
+    connect(
+        m_monitoringService,
+        &MonitoringService::statusChanged,
         this,
         &TelemetryViewModel::onDeviceStatusChanged);
+    connect(
+        m_monitoringService,
+        &MonitoringService::alarmRuleChanged,
+        this,
+        &TelemetryViewModel::thresholdChanged);
+    connect(
+        m_monitoringService,
+        &MonitoringService::alarmChanged,
+        this,
+        &TelemetryViewModel::alarmChanged);
 }
 
 QString TelemetryViewModel::deviceName() const
@@ -59,7 +71,7 @@ QVariantList TelemetryViewModel::temperatureSeries() const
     return m_temperatureSeries;
 }
 
-int TelemetryViewModel::sampleCount() const noexcept
+qint64 TelemetryViewModel::sampleCount() const noexcept
 {
     return m_sampleCount;
 }
@@ -71,12 +83,12 @@ QString TelemetryViewModel::lastUpdate() const
 
 bool TelemetryViewModel::online() const noexcept
 {
-    return m_status == DeviceStatus::Online;
+    return m_monitoringService->status() == DeviceStatus::Online;
 }
 
 QString TelemetryViewModel::statusText() const
 {
-    switch (m_status) {
+    switch (m_monitoringService->status()) {
     case DeviceStatus::Offline:
         return QStringLiteral("Disconnected");
     case DeviceStatus::Connecting:
@@ -92,19 +104,19 @@ QString TelemetryViewModel::statusText() const
 
 double TelemetryViewModel::alarmThreshold() const noexcept
 {
-    return m_temperatureRule.threshold;
+    return m_monitoringService->alarmRule().threshold;
 }
 
 bool TelemetryViewModel::alarmActive() const noexcept
 {
-    return m_currentAlarm.has_value()
-        && m_currentAlarm->state != AlarmState::Resolved;
+    const std::optional<Alarm> &alarm = m_monitoringService->currentAlarm();
+    return alarm.has_value() && alarm->state != AlarmState::Resolved;
 }
 
 bool TelemetryViewModel::alarmAcknowledged() const noexcept
 {
-    return alarmActive()
-        && m_currentAlarm->state == AlarmState::Acknowledged;
+    const std::optional<Alarm> &alarm = m_monitoringService->currentAlarm();
+    return alarmActive() && alarm->state == AlarmState::Acknowledged;
 }
 
 QString TelemetryViewModel::alarmMessage() const
@@ -117,53 +129,45 @@ QString TelemetryViewModel::alarmMessage() const
         return QStringLiteral("Alarm acknowledged by the operator");
     }
 
-    return QStringLiteral("Temperature %1 °C exceeded the %2 °C threshold")
-        .arg(m_currentAlarm->measuredValue, 0, 'f', 1)
-        .arg(m_currentAlarm->threshold, 0, 'f', 0);
+    const Alarm &alarm = *m_monitoringService->currentAlarm();
+    return QStringLiteral("Temperature %1 \u00B0C exceeded the %2 \u00B0C threshold")
+        .arg(alarm.measuredValue, 0, 'f', 1)
+        .arg(alarm.threshold, 0, 'f', 0);
 }
 
 void TelemetryViewModel::setAlarmThreshold(double threshold)
 {
     const double normalizedThreshold = qBound(40.0, threshold, 120.0);
-    if (qFuzzyCompare(m_temperatureRule.threshold, normalizedThreshold)) {
+    AlarmRule alarmRule = m_monitoringService->alarmRule();
+    if (qFuzzyCompare(alarmRule.threshold, normalizedThreshold)) {
         return;
     }
 
-    m_temperatureRule.threshold = normalizedThreshold;
-    emit thresholdChanged();
-
-    if (m_lastSample.has_value()) {
-        evaluateAlarm(*m_lastSample);
-    }
+    alarmRule.threshold = normalizedThreshold;
+    m_monitoringService->setAlarmRule(alarmRule);
 }
 
 void TelemetryViewModel::startMonitoring()
 {
-    m_transport->start();
+    m_monitoringService->start();
 }
 
 void TelemetryViewModel::stopMonitoring()
 {
-    m_transport->stop();
+    m_monitoringService->stop();
 }
 
 void TelemetryViewModel::acknowledgeAlarm()
 {
-    if (!alarmActive() || alarmAcknowledged()) {
-        return;
-    }
-
-    m_currentAlarm->state = AlarmState::Acknowledged;
-    emit alarmChanged();
+    m_monitoringService->acknowledgeAlarm();
 }
 
-void TelemetryViewModel::onTelemetryReceived(const TelemetrySample &sample)
+void TelemetryViewModel::onSampleAccepted(const TelemetrySample &sample)
 {
     if (sample.metricKey != QStringLiteral("temperature")) {
         return;
     }
 
-    m_lastSample = sample;
     m_currentTemperature = sample.value;
     m_temperatureSeries.append(sample.value);
     if (m_temperatureSeries.size() > maximumVisibleSamples) {
@@ -173,41 +177,32 @@ void TelemetryViewModel::onTelemetryReceived(const TelemetrySample &sample)
     ++m_sampleCount;
     m_lastUpdate = sample.timestamp.toLocalTime().toString(QStringLiteral("HH:mm:ss"));
     emit telemetryChanged();
+}
 
-    evaluateAlarm(sample);
+void TelemetryViewModel::onHistoryRestored(
+    const QList<TelemetrySample> &samples,
+    qint64 totalSampleCount)
+{
+    m_temperatureSeries.clear();
+    for (const TelemetrySample &sample : samples) {
+        if (sample.metricKey == QStringLiteral("temperature")) {
+            m_temperatureSeries.append(sample.value);
+        }
+    }
+
+    m_sampleCount = totalSampleCount;
+    if (!samples.isEmpty()) {
+        const TelemetrySample &latestSample = samples.constLast();
+        m_currentTemperature = latestSample.value;
+        m_lastUpdate = latestSample.timestamp.toLocalTime().toString(QStringLiteral("HH:mm:ss"));
+    }
+    emit telemetryChanged();
 }
 
 void TelemetryViewModel::onDeviceStatusChanged(DeviceStatus status)
 {
-    if (m_status == status) {
-        return;
-    }
-
-    m_status = status;
+    Q_UNUSED(status)
     emit statusChanged();
-}
-
-void TelemetryViewModel::evaluateAlarm(const TelemetrySample &sample)
-{
-    const auto evaluatedAlarm = m_alarmEngine.evaluate(sample, m_temperatureRule);
-
-    if (!evaluatedAlarm.has_value()) {
-        if (m_currentAlarm.has_value()) {
-            m_currentAlarm.reset();
-            emit alarmChanged();
-        }
-        return;
-    }
-
-    if (!alarmActive()) {
-        m_currentAlarm = evaluatedAlarm;
-        emit alarmChanged();
-        return;
-    }
-
-    m_currentAlarm->measuredValue = sample.value;
-    m_currentAlarm->threshold = m_temperatureRule.threshold;
-    emit alarmChanged();
 }
 
 } // namespace equipment
