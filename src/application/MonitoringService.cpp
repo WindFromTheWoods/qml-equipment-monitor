@@ -157,7 +157,9 @@ void MonitoringService::onTelemetryReceived(const TelemetrySample &sample)
         emit persistenceError(errorMessage);
     }
 
-    m_lastSample = sample;
+    if (sample.metricKey == m_alarmRule.metricKey) {
+        m_lastSample = sample;
+    }
     emit sampleAccepted(sample);
     evaluateAlarm(sample);
 }
