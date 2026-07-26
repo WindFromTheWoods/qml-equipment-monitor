@@ -2,18 +2,22 @@
 
 [![CI](https://github.com/WindFromTheWoods/qml-equipment-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/WindFromTheWoods/qml-equipment-monitor/actions/workflows/ci.yml)
 
-A desktop application for monitoring industrial equipment. The current version implements the first vertical slice using Clean Architecture and MVVM: a simulated device sends telemetry to a C++ view model, QML renders a live chart, and the domain-level `AlarmEngine` monitors a configurable temperature threshold.
+A desktop application for monitoring industrial equipment. The current version implements a persistent vertical slice using Clean Architecture and MVVM: a simulated device sends telemetry to an application service, SQLite stores telemetry and alarm state, and QML renders both restored history and live measurements.
 
 ## Features
 
 - Qt 6.8, C++20, QML, and Qt Quick Controls;
 - separation into `domain`, `application`, `infrastructure`, and `presentation` layers;
+- application-level `MonitoringService` coordinating transport, alarms, and persistence;
 - simulated compressor temperature published every 500 ms;
 - live chart containing the latest 120 measurements;
+- SQLite telemetry history with automatic versioned schema migrations;
+- restoration of recent telemetry and unresolved alarms after restart;
 - configurable high-temperature threshold;
-- active alarm creation and operator acknowledgement;
+- persistent active alarm creation, resolution, and operator acknowledgement;
 - monitoring start and stop controls;
-- unit tests for the domain-level `AlarmEngine`.
+- unit tests for the domain-level `AlarmEngine`;
+- SQLite integration tests covering repository behavior and restart restoration.
 
 ## Architecture
 
@@ -21,8 +25,8 @@ A desktop application for monitoring industrial equipment. The current version i
 src/
   app/                 Application composition root
   domain/              Device, TelemetrySample, Alarm, and AlarmRule
-  application/         Use-case logic and transport port
-  infrastructure/      Simulated transport adapter
+  application/         Monitoring use cases and transport/storage ports
+  infrastructure/      Simulated transport and SQLite repository adapters
   presentation/        QML-facing view model and user interface
 tests/                  Qt Test unit tests
 ```
@@ -30,17 +34,22 @@ tests/                  Qt Test unit tests
 The dependency direction is:
 
 ```text
-QML View -> TelemetryViewModel -> Application/Domain
-                                  ^
-                                  |
-                         Infrastructure adapters
+QML View -> TelemetryViewModel -> MonitoringService -> Domain
+                                         |       |
+                                         v       v
+                                    Transport  Repository ports
+                                         ^       ^
+                                         |       |
+                                  Infrastructure adapters
 ```
 
-QML contains presentation logic only. Device protocols publish normalized domain objects through `IDeviceTransport`, while alarm evaluation remains independent of the user interface and transport implementation.
+QML contains presentation logic only. `MonitoringService` coordinates the monitoring use case through `IDeviceTransport`, `ITelemetryRepository`, and `IAlarmRepository`. The current infrastructure layer supplies a simulated transport and SQLite adapters, while `TelemetryViewModel` formats restored and live state for QML.
+
+The SQLite database is created in the platform-specific application data directory. Migration 1 creates the telemetry, alarm, and migration-history tables automatically. Telemetry samples and alarm acknowledgement state are restored when the application starts again.
 
 ## Requirements
 
-- Qt 6.8 or newer with the Core, Gui, Quick, Quick Controls 2, and Test modules;
+- Qt 6.8.0 or newer with the Core, Gui, Quick, Quick Controls 2, SQL, and Test modules;
 - CMake 3.21 or newer;
 - a C++20-compatible compiler;
 - Ninja or another CMake-supported build tool.
@@ -50,7 +59,7 @@ QML contains presentation logic only. Device protocols publish normalized domain
 Open the root `CMakeLists.txt` in Qt Creator and select a Qt 6.8 desktop kit, or build from PowerShell:
 
 ```powershell
-cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="W:\Qt\6.8.3\mingw_64"
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="W:\Qt\6.8.0\mingw_64"
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
@@ -60,7 +69,7 @@ ctest --test-dir build --output-on-failure
 When running outside Qt Creator, make the Qt runtime libraries available on `PATH`:
 
 ```powershell
-$env:PATH = "W:\Qt\6.8.3\mingw_64\bin;W:\Qt\Tools\mingw1310_64\bin;$env:PATH"
+$env:PATH = "W:\Qt\6.8.0\mingw_64\bin;W:\Qt\Tools\mingw1310_64\bin;$env:PATH"
 .\build\equipment-monitor.exe
 ```
 
@@ -68,7 +77,7 @@ Qt Creator configures the required runtime paths automatically.
 
 ## Test
 
-The unit test target validates metric filtering, strict threshold behavior, alarm creation, and lower-bound comparisons:
+The test suite validates metric filtering, strict threshold behavior, alarm creation, SQLite migrations, limited history ordering, alarm lifecycle persistence, and restoration across database restarts:
 
 ```powershell
 ctest --test-dir build --output-on-failure
@@ -99,4 +108,4 @@ The generated HTML documentation is written to `build/docs/html/index.html`.
 
 ## Next Milestone
 
-The next vertical slice will introduce a SQLite repository, schema migrations, telemetry persistence, and historical data restoration after an application restart.
+The next vertical slice will introduce multiple monitored devices through a `QAbstractListModel`, device selection in QML, per-device history, and isolated connection and alarm state.
