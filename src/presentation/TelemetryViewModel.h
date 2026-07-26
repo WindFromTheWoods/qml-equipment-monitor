@@ -5,25 +5,19 @@
 
 #pragma once
 
-#include "application/AlarmEngine.h"
-#include "application/IDeviceTransport.h"
-#include "domain/Alarm.h"
-#include "domain/AlarmRule.h"
+#include "application/MonitoringService.h"
 #include "domain/TelemetrySample.h"
 
 #include <QObject>
 #include <QVariantList>
 
-#include <optional>
-
 namespace equipment {
 
 /**
- * @brief Adapts device telemetry and alarm state for declarative QML bindings.
+ * @brief Adapts monitoring use-case state for declarative QML bindings.
  *
- * The view model subscribes to the transport application port, keeps a bounded
- * chart window, evaluates the active temperature rule, and exposes only
- * presentation-ready properties and commands to QML.
+ * The view model subscribes to MonitoringService, keeps presentation-ready
+ * chart values, and exposes formatted state and commands to QML.
  */
 class TelemetryViewModel final : public QObject {
     Q_OBJECT
@@ -40,8 +34,8 @@ class TelemetryViewModel final : public QObject {
     /** @brief Bounded sequence of values rendered by the live chart. */
     Q_PROPERTY(QVariantList temperatureSeries READ temperatureSeries NOTIFY telemetryChanged)
 
-    /** @brief Total number of accepted temperature samples. */
-    Q_PROPERTY(int sampleCount READ sampleCount NOTIFY telemetryChanged)
+    /** @brief Total number of persisted and live temperature samples. */
+    Q_PROPERTY(qint64 sampleCount READ sampleCount NOTIFY telemetryChanged)
 
     /** @brief Local time of the latest sample formatted for display. */
     Q_PROPERTY(QString lastUpdate READ lastUpdate NOTIFY telemetryChanged)
@@ -67,13 +61,13 @@ class TelemetryViewModel final : public QObject {
 public:
     /**
      * @brief Creates a view model for a single monitored device.
-     * @param transport Non-owning pointer to the telemetry transport.
+     * @param monitoringService Non-owning application service pointer.
      * @param deviceName Human-readable device name.
      * @param deviceType Human-readable device type.
      * @param parent Optional Qt object owner.
      */
     explicit TelemetryViewModel(
-        IDeviceTransport *transport,
+        MonitoringService *monitoringService,
         QString deviceName,
         QString deviceType,
         QObject *parent = nullptr);
@@ -90,8 +84,8 @@ public:
     /** @return A copy of the bounded temperature series displayed by QML. */
     [[nodiscard]] QVariantList temperatureSeries() const;
 
-    /** @return The total number of accepted temperature samples. */
-    [[nodiscard]] int sampleCount() const noexcept;
+    /** @return The total number of persisted and live temperature samples. */
+    [[nodiscard]] qint64 sampleCount() const noexcept;
 
     /** @return The local time of the latest sample formatted for display. */
     [[nodiscard]] QString lastUpdate() const;
@@ -117,14 +111,14 @@ public:
     /**
      * @brief Updates the high-temperature alarm threshold.
      * @param threshold Requested threshold in degrees Celsius; values are
-     * clamped to the supported range of 40–120 degrees.
+     * clamped to the supported range of 40-120 degrees.
      */
     void setAlarmThreshold(double threshold);
 
-    /** @brief Starts receiving telemetry through the configured transport. */
+    /** @brief Starts receiving telemetry through the monitoring service. */
     Q_INVOKABLE void startMonitoring();
 
-    /** @brief Stops receiving telemetry through the configured transport. */
+    /** @brief Stops receiving telemetry through the monitoring service. */
     Q_INVOKABLE void stopMonitoring();
 
     /** @brief Marks the current active alarm as acknowledged. */
@@ -145,10 +139,19 @@ signals:
 
 private slots:
     /**
-     * @brief Processes a telemetry sample published by the transport.
-     * @param sample Normalized device measurement.
+     * @brief Applies a live sample published by the monitoring service.
+     * @param sample Accepted normalized device measurement.
      */
-    void onTelemetryReceived(const equipment::TelemetrySample &sample);
+    void onSampleAccepted(const equipment::TelemetrySample &sample);
+
+    /**
+     * @brief Replaces the chart state with restored persistent history.
+     * @param samples Recent temperature samples in chronological order.
+     * @param totalSampleCount Total number of persisted temperature samples.
+     */
+    void onHistoryRestored(
+        const QList<equipment::TelemetrySample> &samples,
+        qint64 totalSampleCount);
 
     /**
      * @brief Applies a transport state update to the presentation model.
@@ -157,27 +160,16 @@ private slots:
     void onDeviceStatusChanged(equipment::DeviceStatus status);
 
 private:
-    /**
-     * @brief Re-evaluates the current alarm lifecycle for a sample.
-     * @param sample Latest accepted temperature measurement.
-     */
-    void evaluateAlarm(const TelemetrySample &sample);
-
     /** @brief Maximum number of values retained for the live chart. */
     static constexpr qsizetype maximumVisibleSamples = 120;
 
-    IDeviceTransport *m_transport; ///< Non-owning telemetry transport pointer.
+    MonitoringService *m_monitoringService; ///< Non-owning application service pointer.
     QString m_deviceName; ///< Device name exposed to QML.
     QString m_deviceType; ///< Device type exposed to QML.
-    AlarmEngine m_alarmEngine; ///< Stateless alarm evaluation service.
-    AlarmRule m_temperatureRule; ///< Active high-temperature rule.
-    std::optional<Alarm> m_currentAlarm; ///< Current unresolved alarm, if any.
-    std::optional<TelemetrySample> m_lastSample; ///< Latest accepted sample.
     QVariantList m_temperatureSeries; ///< Bounded values used by the chart.
     double m_currentTemperature{0.0}; ///< Latest temperature in degrees Celsius.
-    int m_sampleCount{0}; ///< Total number of accepted samples.
-    QString m_lastUpdate{QStringLiteral("—")}; ///< Formatted latest sample time.
-    DeviceStatus m_status{DeviceStatus::Offline}; ///< Current transport state.
+    qint64 m_sampleCount{0}; ///< Total number of persisted and live samples.
+    QString m_lastUpdate{QStringLiteral("\u2014")}; ///< Formatted latest sample time.
 };
 
 } // namespace equipment

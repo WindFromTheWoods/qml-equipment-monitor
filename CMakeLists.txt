@@ -15,6 +15,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     Gui
     Quick
     QuickControls2
+    Sql
     Test
 )
 find_package(Doxygen QUIET)
@@ -31,7 +32,11 @@ target_link_libraries(equipment_domain INTERFACE Qt6::Core)
 qt_add_library(equipment_application STATIC
     src/application/AlarmEngine.cpp
     src/application/AlarmEngine.h
+    src/application/IAlarmRepository.h
     src/application/IDeviceTransport.h
+    src/application/ITelemetryRepository.h
+    src/application/MonitoringService.cpp
+    src/application/MonitoringService.h
 )
 target_include_directories(equipment_application PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -44,6 +49,12 @@ target_link_libraries(equipment_application PUBLIC
 qt_add_library(equipment_infrastructure STATIC
     src/infrastructure/SimulatedTransport.cpp
     src/infrastructure/SimulatedTransport.h
+    src/infrastructure/SqliteAlarmRepository.cpp
+    src/infrastructure/SqliteAlarmRepository.h
+    src/infrastructure/SqliteDatabase.cpp
+    src/infrastructure/SqliteDatabase.h
+    src/infrastructure/SqliteTelemetryRepository.cpp
+    src/infrastructure/SqliteTelemetryRepository.h
 )
 target_include_directories(equipment_infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -51,6 +62,7 @@ target_include_directories(equipment_infrastructure PUBLIC
 target_link_libraries(equipment_infrastructure PUBLIC
     equipment_application
     Qt6::Core
+    Qt6::Sql
 )
 
 qt_add_library(equipment_presentation STATIC
@@ -101,6 +113,15 @@ target_link_libraries(test_alarm_engine PRIVATE
     Qt6::Test
 )
 add_test(NAME AlarmEngine COMMAND test_alarm_engine)
+
+qt_add_executable(test_sqlite_persistence
+    tests/test_sqlite_persistence.cpp
+)
+target_link_libraries(test_sqlite_persistence PRIVATE
+    equipment_infrastructure
+    Qt6::Test
+)
+add_test(NAME SqlitePersistence COMMAND test_sqlite_persistence)
 
 if(Doxygen_FOUND)
     set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)

@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  QT_VERSION: 6.8.3
+  QT_VERSION: 6.8.0
   CMAKE_BUILD_PARALLEL_LEVEL: 2
 
 jobs:
