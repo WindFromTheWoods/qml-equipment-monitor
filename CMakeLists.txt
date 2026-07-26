@@ -15,6 +15,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     Gui
     Quick
     QuickControls2
+    Sql
     Test
 )
 find_package(Doxygen QUIET)
@@ -48,6 +49,12 @@ target_link_libraries(equipment_application PUBLIC
 qt_add_library(equipment_infrastructure STATIC
     src/infrastructure/SimulatedTransport.cpp
     src/infrastructure/SimulatedTransport.h
+    src/infrastructure/SqliteAlarmRepository.cpp
+    src/infrastructure/SqliteAlarmRepository.h
+    src/infrastructure/SqliteDatabase.cpp
+    src/infrastructure/SqliteDatabase.h
+    src/infrastructure/SqliteTelemetryRepository.cpp
+    src/infrastructure/SqliteTelemetryRepository.h
 )
 target_include_directories(equipment_infrastructure PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -55,6 +62,7 @@ target_include_directories(equipment_infrastructure PUBLIC
 target_link_libraries(equipment_infrastructure PUBLIC
     equipment_application
     Qt6::Core
+    Qt6::Sql
 )
 
 qt_add_library(equipment_presentation STATIC
