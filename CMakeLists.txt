@@ -114,6 +114,15 @@ target_link_libraries(test_alarm_engine PRIVATE
 )
 add_test(NAME AlarmEngine COMMAND test_alarm_engine)
 
+qt_add_executable(test_sqlite_persistence
+    tests/test_sqlite_persistence.cpp
+)
+target_link_libraries(test_sqlite_persistence PRIVATE
+    equipment_infrastructure
+    Qt6::Test
+)
+add_test(NAME SqlitePersistence COMMAND test_sqlite_persistence)
+
 if(Doxygen_FOUND)
     set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
     set(DOXYGEN_EXTRACT_PRIVATE YES)
