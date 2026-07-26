@@ -31,7 +31,11 @@ target_link_libraries(equipment_domain INTERFACE Qt6::Core)
 qt_add_library(equipment_application STATIC
     src/application/AlarmEngine.cpp
     src/application/AlarmEngine.h
+    src/application/IAlarmRepository.h
     src/application/IDeviceTransport.h
+    src/application/ITelemetryRepository.h
+    src/application/MonitoringService.cpp
+    src/application/MonitoringService.h
 )
 target_include_directories(equipment_application PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
